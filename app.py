@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # Reduced to 2MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 3 * 1024 * 1024  # Increased to 3MB max file size
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
@@ -32,7 +32,7 @@ app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
-app.config['MAX_IMAGE_DIMENSION'] = 512  # Further reduced max dimension
+app.config['MAX_IMAGE_DIMENSION'] = 768  # Increased max dimension for better quality
 
 # Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -253,7 +253,7 @@ def log_memory_usage(stage):
     memory_mb = get_memory_usage()
     logger.info(f"Memory usage at {stage}: {memory_mb:.2f} MB")
 
-def resize_image(image_path, max_dimension=512):
+def resize_image(image_path, max_dimension=768):
     """Resize image if it's larger than max_dimension while maintaining aspect ratio"""
     try:
         img = Image.open(image_path)
@@ -267,20 +267,23 @@ def resize_image(image_path, max_dimension=512):
                 new_height = max_dimension
                 new_width = int(width * (max_dimension / height))
             
+            # Use high-quality resampling
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            img.save(image_path, quality=75, optimize=True)  # Reduced quality
+            # Save with high quality but still optimized
+            img.save(image_path, quality=92, optimize=True)
             return True
     except Exception as e:
         logger.error(f"Error resizing image: {str(e)}")
     return False
 
 def optimize_image(image_path):
-    """Optimize image file size"""
+    """Optimize image file size while maintaining quality"""
     try:
         img = Image.open(image_path)
         if img.mode == 'RGBA':
             img = img.convert('RGB')
-        img.save(image_path, quality=75, optimize=True)  # Reduced quality
+        # Save with high quality but still optimized
+        img.save(image_path, quality=92, optimize=True)
         return True
     except Exception as e:
         logger.error(f"Error optimizing image: {str(e)}")
@@ -320,7 +323,7 @@ def generate_art():
         
         log_memory_usage("after save")
         
-        # Optimize uploaded image
+        # Optimize uploaded image with high quality
         resize_image(filepath, app.config['MAX_IMAGE_DIMENSION'])
         optimize_image(filepath)
         
@@ -343,12 +346,13 @@ def generate_art():
             result_filename = f"result_{filename}"
             result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
             
+            # Save with high quality
             if len(result.shape) == 2:
-                cv2.imwrite(result_path, result)
+                cv2.imwrite(result_path, result, [cv2.IMWRITE_JPEG_QUALITY, 92])
             else:
-                cv2.imwrite(result_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
+                cv2.imwrite(result_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
             
-            # Optimize result image
+            # Optimize result image with high quality
             optimize_image(result_path)
             
             stats = update_stats(int(style))
