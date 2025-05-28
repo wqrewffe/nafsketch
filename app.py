@@ -395,6 +395,10 @@ def generate_art():
         result_filename = f"result_{filename}"
         result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
         
+        # Update stats before processing
+        stats = update_stats(int(style))
+        top_styles = get_top_styles()
+        
         # Start background processing
         thread = threading.Thread(
             target=process_image_in_background,
@@ -406,7 +410,12 @@ def generate_art():
             'success': True,
             'preview_url': url_for('static', filename=f'generated/{preview_filename}'),
             'message': 'Processing high-quality image in background...',
-            'status': 'processing'
+            'status': 'processing',
+            'stats': {
+                'total_artworks': stats.get('total_artworks', 0),
+                'total_visits': stats.get('total_visits', 0),
+                'top_styles': top_styles
+            }
         })
         
     except Exception as e:
@@ -417,9 +426,17 @@ def generate_art():
 def check_status(filename):
     result_path = os.path.join(app.config['GENERATED_FOLDER'], f"result_{filename}")
     if os.path.exists(result_path):
+        # Get latest stats when returning the result
+        stats = load_stats()
+        top_styles = get_top_styles()
         return jsonify({
             'status': 'complete',
-            'image_url': url_for('static', filename=f'generated/result_{filename}')
+            'image_url': url_for('static', filename=f'generated/result_{filename}'),
+            'stats': {
+                'total_artworks': stats.get('total_artworks', 0),
+                'total_visits': stats.get('total_visits', 0),
+                'top_styles': top_styles
+            }
         })
     return jsonify({'status': 'processing'})
 
