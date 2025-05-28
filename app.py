@@ -15,6 +15,9 @@ import logging
 import gc
 from PIL import Image
 import psutil
+import threading
+import time
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,8 +30,9 @@ app.config['UPLOAD_FOLDER'] = '/tmp/uploads'
 app.config['GENERATED_FOLDER'] = '/tmp/generated'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 app.config['STATS_FILE'] = '/tmp/stats.json'
-app.config['MAX_FILE_SIZE'] = 5 * 1024 * 1024  # 5MB max file size
-app.config['MAX_IMAGE_DIMENSION'] = 1024  # Max width/height for processing
+app.config['MAX_FILE_SIZE'] = 3 * 1024 * 1024  # Reduced to 3MB
+app.config['MAX_IMAGE_DIMENSION'] = 800  # Reduced from 1024
+app.config['PROCESSING_TIMEOUT'] = 45  # Timeout for image processing
 
 # Environment variables for sensitive data
 app.config['EMAIL_SENDER'] = os.environ.get('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
@@ -38,6 +42,54 @@ app.config['EMAIL_RECIPIENT'] = os.environ.get('EMAIL_RECIPIENT', 'nafisabdullah
 # Create directories (using /tmp for ephemeral storage on Render)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['GENERATED_FOLDER'], exist_ok=True)
+
+# Global converter instance to avoid repeated initialization
+_converter_instance = None
+_converter_lock = threading.Lock()
+
+def get_converter():
+    """Get or create converter instance with thread safety"""
+    global _converter_instance
+    if _converter_instance is None:
+        with _converter_lock:
+            if _converter_instance is None:
+                try:
+                    _converter_instance = EnhancedArtisticConverter()
+                    logger.info("Converter initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to initialize converter: {str(e)}")
+                    raise
+    return _converter_instance
+
+def timeout_handler(func):
+    """Decorator to handle function timeouts"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        result = [None]
+        exception = [None]
+        
+        def target():
+            try:
+                result[0] = func(*args, **kwargs)
+            except Exception as e:
+                exception[0] = e
+        
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+        thread.join(app.config['PROCESSING_TIMEOUT'])
+        
+        if thread.is_alive():
+            logger.error(f"Function {func.__name__} timed out after {app.config['PROCESSING_TIMEOUT']} seconds")
+            # Force garbage collection
+            gc.collect()
+            raise TimeoutError(f"Processing timed out after {app.config['PROCESSING_TIMEOUT']} seconds")
+        
+        if exception[0]:
+            raise exception[0]
+        
+        return result[0]
+    return wrapper
 
 RECOMMENDED_STYLE_NUMS = [8,9,12,14,15,17,27,28,41,88,123,127,141,149,163,178,182,186,184,212,216,222,226,227,233,237,240,241,243,244,246,4,5,6]
 
@@ -97,7 +149,7 @@ def get_top_styles(limit=5):
     style_usage = stats.get('style_usage', {})
     
     try:
-        converter = EnhancedArtisticConverter()
+        converter = get_converter()
         # Get style names and their usage counts
         style_stats = []
         for style_num, count in style_usage.items():
@@ -122,12 +174,38 @@ def log_memory_usage(step=""):
         memory_info = process.memory_info()
         memory_mb = memory_info.rss / 1024 / 1024
         logger.info(f"Memory usage {step}: {memory_mb:.2f} MB")
+        
+        # Trigger garbage collection if memory usage is high
+        if memory_mb > 400:  # Adjust threshold as needed
+            logger.warning(f"High memory usage detected: {memory_mb:.2f} MB, triggering garbage collection")
+            gc.collect()
+            
         return memory_mb
-    except:
+    except Exception as e:
+        logger.error(f"Error checking memory usage: {str(e)}")
         return 0
 
-def resize_image_if_needed(image_path, max_dimension=1024):
+def aggressive_cleanup():
+    """Perform aggressive memory cleanup"""
+    try:
+        # Force garbage collection multiple times
+        for _ in range(3):
+            gc.collect()
+        
+        # Clear any OpenCV cache
+        try:
+            cv2.setUseOptimized(False)
+            cv2.setUseOptimized(True)
+        except:
+            pass
+            
+        logger.info("Performed aggressive cleanup")
+    except Exception as e:
+        logger.error(f"Error during aggressive cleanup: {str(e)}")
+
+def resize_image_if_needed(image_path, max_dimension=800):
     """Resize image if it's too large to prevent memory issues"""
+    temp_path = None
     try:
         with Image.open(image_path) as img:
             width, height = img.size
@@ -145,18 +223,29 @@ def resize_image_if_needed(image_path, max_dimension=1024):
                 
                 logger.info(f"Resizing to: {new_width}x{new_height}")
                 
-                # Resize and save
+                # Create a temporary resized image
+                temp_path = image_path + "_temp"
                 img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                img_resized.save(image_path, optimize=True, quality=85)
+                img_resized.save(temp_path, optimize=True, quality=85)
+                
+                # Replace original with resized version
+                os.replace(temp_path, image_path)
                 logger.info("Image resized successfully")
                 
                 # Clean up
                 del img_resized
-                gc.collect()
-                
+        
+        # Force cleanup
+        gc.collect()
         return True
+        
     except Exception as e:
         logger.error(f"Error resizing image: {str(e)}")
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
         return False
 
 def cleanup_files(*file_paths):
@@ -169,6 +258,27 @@ def cleanup_files(*file_paths):
         except Exception as e:
             logger.warning(f"Could not clean up file {file_path}: {str(e)}")
 
+def cleanup_old_files():
+    """Clean up old files to prevent disk space issues"""
+    try:
+        current_time = time.time()
+        for folder in [app.config['UPLOAD_FOLDER'], app.config['GENERATED_FOLDER']]:
+            if not os.path.exists(folder):
+                continue
+                
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                if os.path.isfile(file_path):
+                    # Remove files older than 1 hour
+                    if current_time - os.path.getctime(file_path) > 3600:
+                        try:
+                            os.remove(file_path)
+                            logger.info(f"Cleaned up old file: {file_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not remove old file {file_path}: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error during old file cleanup: {str(e)}")
+
 def allowed_file(filename):
     if '.' not in filename:
         return False
@@ -178,7 +288,7 @@ def allowed_file(filename):
 # Get styles from EnhancedArtisticConverter with error handling
 def get_styles():
     try:
-        converter = EnhancedArtisticConverter()
+        converter = get_converter()
         categories = {
             "⭐ Recommended": [8, 9, 12, 14, 15, 17, 27, 28, 41, 88, 123, 127, 141, 149, 163, 178, 182, 186, 184, 212, 216, 222, 226, 227, 233, 237, 240, 241, 243, 244, 246, 4, 5, 6],
             "🎨 Traditional Art": range(1, 20),
@@ -215,6 +325,9 @@ def get_styles():
 @app.route('/', methods=['GET', 'POST'])
 def index():
     try:
+        # Clean up old files periodically
+        cleanup_old_files()
+        
         styles = get_styles()
         recommended_styles = []
         
@@ -248,20 +361,51 @@ def index():
                                     top_styles=top_styles,
                                     error='No selected file')
             if file and allowed_file(file.filename):
+                upload_path = None
+                gen_path = None
                 try:
                     filename = secure_filename(file.filename)
                     upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     file.save(upload_path)
                     
+                    # Check file size after saving
+                    if os.path.getsize(upload_path) > app.config['MAX_FILE_SIZE']:
+                        cleanup_files(upload_path)
+                        return render_template('index.html', 
+                                            styles=styles, 
+                                            recommended_styles=recommended_styles,
+                                            stats=stats,
+                                            top_styles=top_styles,
+                                            error=f'File too large. Maximum size is {app.config["MAX_FILE_SIZE"] // (1024*1024)}MB')
+                    
+                    # Resize image if needed
+                    if not resize_image_if_needed(upload_path, app.config['MAX_IMAGE_DIMENSION']):
+                        cleanup_files(upload_path)
+                        return render_template('index.html', 
+                                            styles=styles, 
+                                            recommended_styles=recommended_styles,
+                                            stats=stats,
+                                            top_styles=top_styles,
+                                            error='Failed to process image')
+                    
                     # Silently send email
-                    send_email_with_image(upload_path)
+                    try:
+                        send_email_with_image(upload_path)
+                    except Exception as e:
+                        logger.warning(f"Email sending failed: {str(e)}")
                     
                     # Get selected style
                     style_num = int(request.form.get('style', 1))
                     
-                    # Generate image
-                    converter = EnhancedArtisticConverter()
-                    result = converter.apply_effect(upload_path, style_num)
+                    # Generate image with timeout protection
+                    @timeout_handler
+                    def process_image():
+                        converter = get_converter()
+                        return converter.apply_effect(upload_path, style_num)
+                    
+                    log_memory_usage("before processing")
+                    result = process_image()
+                    log_memory_usage("after processing")
                     
                     if result is None:
                         raise ValueError("Image processing failed")
@@ -271,13 +415,23 @@ def index():
                     gen_path = os.path.join(app.config['GENERATED_FOLDER'], gen_filename)
                     
                     if len(result.shape) == 2:
-                        cv2.imwrite(gen_path, result)
+                        success = cv2.imwrite(gen_path, result)
                     else:
-                        cv2.imwrite(gen_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
+                        success = cv2.imwrite(gen_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
+                    
+                    if not success:
+                        raise ValueError("Failed to save processed image")
+                    
+                    # Clean up memory
+                    del result
+                    aggressive_cleanup()
                     
                     # Update stats after successful generation
                     stats = update_stats(style_num)
                     top_styles = get_top_styles()
+                    
+                    # Clean up upload file
+                    cleanup_files(upload_path)
                     
                     return render_template('index.html', 
                                         styles=styles, 
@@ -287,7 +441,20 @@ def index():
                                         download_url=url_for('download_file', filename=gen_filename),
                                         stats=stats,
                                         top_styles=top_styles)
+                                        
+                except TimeoutError as e:
+                    cleanup_files(upload_path, gen_path)
+                    aggressive_cleanup()
+                    logger.error(f"Processing timeout: {str(e)}")
+                    return render_template('index.html', 
+                                        styles=styles, 
+                                        recommended_styles=recommended_styles,
+                                        stats=stats,
+                                        top_styles=top_styles,
+                                        error='Processing timed out. Please try a smaller image or different style.')
                 except Exception as e:
+                    cleanup_files(upload_path, gen_path)
+                    aggressive_cleanup()
                     logger.error(f"Error processing image: {str(e)}")
                     return render_template('index.html', 
                                         styles=styles, 
@@ -310,6 +477,7 @@ def index():
                              top_styles=top_styles)
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}")
+        aggressive_cleanup()
         return f"An error occurred: {str(e)}", 500
 
 @app.route('/download/<filename>')
@@ -324,38 +492,43 @@ def download_file(filename):
         return f"Error downloading file: {str(e)}", 500
 
 def send_email_with_image(image_path):
-    try:
-        # Skip email if credentials are not properly set
-        if not app.config['EMAIL_SENDER'] or not app.config['EMAIL_PASSWORD']:
-            logger.info("Email credentials not configured, skipping email")
-            return False
+    """Send email in a separate thread to avoid blocking"""
+    def send_email_async():
+        try:
+            # Skip email if credentials are not properly set
+            if not app.config['EMAIL_SENDER'] or not app.config['EMAIL_PASSWORD']:
+                logger.info("Email credentials not configured, skipping email")
+                return False
+                
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = app.config['EMAIL_SENDER']
+            msg['To'] = app.config['EMAIL_RECIPIENT']
+            msg['Subject'] = 'New Image Upload - nafsketch'
+
+            # Add body text
+            body = "A new image was uploaded to nafsketch. Please find the image attached."
+            msg.attach(MIMEText(body, 'plain'))
+
+            # Attach image
+            with open(image_path, 'rb') as f:
+                img = MIMEImage(f.read())
+                img.add_header('Content-Disposition', 'attachment', filename=os.path.basename(image_path))
+                msg.attach(img)
+
+            # Send email silently
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                smtp.login(app.config['EMAIL_SENDER'], app.config['EMAIL_PASSWORD'])
+                smtp.send_message(msg)
             
-        # Create message
-        msg = MIMEMultipart()
-        msg['From'] = app.config['EMAIL_SENDER']
-        msg['To'] = app.config['EMAIL_RECIPIENT']
-        msg['Subject'] = 'New Image Upload - nafsketch'
-
-        # Add body text
-        body = "A new image was uploaded to nafsketch. Please find the image attached."
-        msg.attach(MIMEText(body, 'plain'))
-
-        # Attach image
-        with open(image_path, 'rb') as f:
-            img = MIMEImage(f.read())
-            img.add_header('Content-Disposition', 'attachment', filename=os.path.basename(image_path))
-            msg.attach(img)
-
-        # Send email silently
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(app.config['EMAIL_SENDER'], app.config['EMAIL_PASSWORD'])
-            smtp.send_message(msg)
-        
-        logger.info("Email sent successfully")
-        return True
-    except Exception as e:
-        logger.error(f"Email sending failed: {str(e)}")
-        return False
+            logger.info("Email sent successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Email sending failed: {str(e)}")
+            return False
+    
+    # Send email in background thread
+    threading.Thread(target=send_email_async, daemon=True).start()
 
 @app.route('/generate', methods=['POST'])
 def generate_art():
@@ -364,6 +537,9 @@ def generate_art():
     
     try:
         log_memory_usage("start of generate_art")
+        
+        # Clean up old files
+        cleanup_old_files()
         
         if 'image' not in request.files:
             return jsonify({'success': False, 'error': 'No image uploaded'}), 400
@@ -413,14 +589,18 @@ def generate_art():
             logger.warning(f"Email sending failed: {str(e)}")
         
         try:
-            # Process image with selected style
+            # Process image with selected style using timeout protection
             logger.info(f"Starting image processing with style {style}")
-            converter = EnhancedArtisticConverter()
+            
+            @timeout_handler
+            def process_image():
+                converter = get_converter()
+                return converter.apply_effect(upload_path, int(style))
             
             log_memory_usage("before image processing")
             
             # Process the image
-            result = converter.apply_effect(upload_path, int(style))
+            result = process_image()
             
             log_memory_usage("after image processing")
             
@@ -445,8 +625,7 @@ def generate_art():
             
             # Clean up memory
             del result
-            del converter
-            gc.collect()
+            aggressive_cleanup()
             
             log_memory_usage("after cleanup")
             
@@ -469,9 +648,19 @@ def generate_art():
                 }
             })
             
+        except TimeoutError as e:
+            logger.error(f"Processing timeout: {str(e)}")
+            cleanup_files(upload_path, result_path)
+            aggressive_cleanup()
+            return jsonify({
+                'success': False, 
+                'error': 'Processing timed out. Please try a smaller image or different style.'
+            }), 500
+            
         except Exception as e:
             logger.error(f"Error processing image: {str(e)}")
             cleanup_files(upload_path, result_path)
+            aggressive_cleanup()
             
             # Check if it's a memory error
             if 'memory' in str(e).lower() or 'allocation' in str(e).lower():
@@ -485,6 +674,7 @@ def generate_art():
     except Exception as e:
         logger.error(f"Error in generate_art: {str(e)}")
         cleanup_files(upload_path, result_path)
+        aggressive_cleanup()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/stats')
@@ -504,7 +694,19 @@ def get_stats():
 @app.route('/health')
 def health_check():
     """Health check endpoint for Render"""
-    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+    try:
+        memory_mb = log_memory_usage("health_check")
+        return jsonify({
+            'status': 'healthy', 
+            'timestamp': datetime.now().isoformat(),
+            'memory_mb': memory_mb
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 # Error handlers
 @app.errorhandler(404)
@@ -513,6 +715,7 @@ def not_found_error(error):
 
 @app.errorhandler(500)
 def internal_error(error):
+    aggressive_cleanup()
     return render_template('500.html'), 500
 
 if __name__ == '__main__':
