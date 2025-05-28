@@ -307,9 +307,12 @@ def cleanup_old_files():
 def process_image_in_background(filepath, style, result_path):
     """Process image in background with memory management"""
     try:
+        logger.info(f"Starting image processing: {filepath}")
+        
         # Load image
         img = Image.open(filepath)
         width, height = img.size
+        logger.info(f"Original image size: {width}x{height}")
         
         # Calculate optimal size while maintaining aspect ratio
         max_dim = min(1024, max(width, height))
@@ -320,22 +323,36 @@ def process_image_in_background(filepath, style, result_path):
             new_height = max_dim
             new_width = int(width * (max_dim / height))
         
+        logger.info(f"Resizing to: {new_width}x{new_height}")
+        
         # Resize image once
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
         # Convert to numpy array
         img_array = np.array(img)
+        logger.info("Converted to numpy array")
         
         # Process entire image at once
         converter = EnhancedArtisticConverter()
+        logger.info(f"Applying style {style}")
         processed_img = converter.apply_effect(img_array, style)
         
+        if processed_img is None:
+            logger.error("Style application returned None")
+            return False
+            
+        logger.info("Style applied successfully")
+        
         # Save result
-        if processed_img is not None:
+        try:
             if len(processed_img.shape) == 2:
                 cv2.imwrite(result_path, processed_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
             else:
                 cv2.imwrite(result_path, cv2.cvtColor(processed_img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
+            logger.info(f"Image saved to {result_path}")
+        except Exception as save_error:
+            logger.error(f"Error saving image: {str(save_error)}")
+            return False
         
         # Clean up
         del img_array
@@ -345,6 +362,9 @@ def process_image_in_background(filepath, style, result_path):
         return True
     except Exception as e:
         logger.error(f"Error in background processing: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 @app.route('/generate', methods=['POST'])
@@ -365,15 +385,21 @@ def generate_art():
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
+        logger.info(f"File saved to {filepath}")
         
         # Create a temporary low-quality preview
         preview_filename = f"preview_{filename}"
         preview_path = os.path.join(app.config['GENERATED_FOLDER'], preview_filename)
         
-        # Generate quick preview
-        img = Image.open(filepath)
-        img.thumbnail((512, 512))
-        img.save(preview_path, quality=85)
+        try:
+            # Generate quick preview
+            img = Image.open(filepath)
+            img.thumbnail((512, 512))
+            img.save(preview_path, quality=85)
+            logger.info(f"Preview saved to {preview_path}")
+        except Exception as preview_error:
+            logger.error(f"Error creating preview: {str(preview_error)}")
+            return jsonify({'error': 'Failed to create preview'}), 500
         
         # Start background processing
         result_filename = f"result_{filename}"
@@ -384,10 +410,14 @@ def generate_art():
         top_styles = get_top_styles()
         
         # Process image immediately instead of in background
+        logger.info("Starting image processing")
         success = process_image_in_background(filepath, int(style), result_path)
         
         if not success:
-            return jsonify({'error': 'Failed to process image'}), 500
+            logger.error("Image processing failed")
+            return jsonify({'error': 'Failed to process image. Please try a different style or image.'}), 500
+        
+        logger.info("Image processing completed successfully")
         
         return jsonify({
             'success': True,
@@ -404,7 +434,10 @@ def generate_art():
         
     except Exception as e:
         logger.error(f"Error in generate_art: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error type: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
 
 @app.route('/check_status/<filename>')
 def check_status(filename):
