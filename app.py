@@ -16,6 +16,8 @@ import gc
 import psutil
 import logging
 import time
+import threading
+from queue import Queue
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # Increased to 3MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB max file size
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
@@ -32,7 +34,8 @@ app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
-app.config['MAX_IMAGE_DIMENSION'] = 768  # Increased max dimension for better quality
+app.config['MAX_IMAGE_DIMENSION'] = 1024  # Increased for high quality
+app.config['PROCESSING_QUEUE'] = Queue()
 
 # Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -301,9 +304,67 @@ def cleanup_old_files():
     except Exception as e:
         logger.error(f"Error cleaning up files: {str(e)}")
 
+def process_image_in_background(filepath, style, result_path):
+    """Process image in background with memory management"""
+    try:
+        # Load and resize image in chunks
+        img = Image.open(filepath)
+        width, height = img.size
+        
+        # Calculate optimal size while maintaining aspect ratio
+        max_dim = min(1024, max(width, height))
+        if width > height:
+            new_width = max_dim
+            new_height = int(height * (max_dim / width))
+        else:
+            new_height = max_dim
+            new_width = int(width * (max_dim / height))
+        
+        # Process in chunks
+        chunk_size = 512
+        for y in range(0, new_height, chunk_size):
+            for x in range(0, new_width, chunk_size):
+                # Process chunk
+                chunk = img.crop((x, y, min(x + chunk_size, new_width), min(y + chunk_size, new_height)))
+                # Apply style to chunk
+                converter = EnhancedArtisticConverter()
+                processed_chunk = converter.apply_effect(chunk, style)
+                
+                # Save chunk
+                if processed_chunk is not None:
+                    if len(processed_chunk.shape) == 2:
+                        cv2.imwrite(f"{result_path}_chunk_{x}_{y}.jpg", processed_chunk, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    else:
+                        cv2.imwrite(f"{result_path}_chunk_{x}_{y}.jpg", cv2.cvtColor(processed_chunk, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
+                
+                # Clean up
+                del processed_chunk
+                gc.collect()
+        
+        # Combine chunks
+        final_image = Image.new('RGB', (new_width, new_height))
+        for y in range(0, new_height, chunk_size):
+            for x in range(0, new_width, chunk_size):
+                chunk_path = f"{result_path}_chunk_{x}_{y}.jpg"
+                if os.path.exists(chunk_path):
+                    chunk = Image.open(chunk_path)
+                    final_image.paste(chunk, (x, y))
+                    os.remove(chunk_path)
+        
+        # Save final high-quality image
+        final_image.save(result_path, quality=95, optimize=True)
+        
+        # Clean up
+        del final_image
+        gc.collect()
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error in background processing: {str(e)}")
+        return False
+
 @app.route('/generate', methods=['POST'])
 def generate_art():
-    log_memory_usage("start")
     try:
         if 'image' not in request.files:
             return jsonify({'error': 'No image uploaded'}), 400
@@ -321,69 +382,46 @@ def generate_art():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
-        log_memory_usage("after save")
+        # Create a temporary low-quality preview
+        preview_filename = f"preview_{filename}"
+        preview_path = os.path.join(app.config['GENERATED_FOLDER'], preview_filename)
         
-        # Optimize uploaded image with high quality
-        resize_image(filepath, app.config['MAX_IMAGE_DIMENSION'])
-        optimize_image(filepath)
+        # Generate quick preview
+        img = Image.open(filepath)
+        img.thumbnail((512, 512))
+        img.save(preview_path, quality=85)
         
-        log_memory_usage("after optimize")
+        # Start background processing
+        result_filename = f"result_{filename}"
+        result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
         
-        send_email_with_image(filepath)
+        # Start background processing
+        thread = threading.Thread(
+            target=process_image_in_background,
+            args=(filepath, int(style), result_path)
+        )
+        thread.start()
         
-        try:
-            # Clean up old files before processing
-            cleanup_old_files()
-            
-            converter = EnhancedArtisticConverter()
-            result = converter.apply_effect(filepath, int(style))
-            
-            log_memory_usage("after processing")
-            
-            if result is None:
-                raise ValueError("Image processing failed - no result returned")
-            
-            result_filename = f"result_{filename}"
-            result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
-            
-            # Save with high quality
-            if len(result.shape) == 2:
-                cv2.imwrite(result_path, result, [cv2.IMWRITE_JPEG_QUALITY, 92])
-            else:
-                cv2.imwrite(result_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
-            
-            # Optimize result image with high quality
-            optimize_image(result_path)
-            
-            stats = update_stats(int(style))
-            top_styles = get_top_styles()
-            
-            # Clean up
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            
-            # Force garbage collection
-            gc.collect()
-            
-            log_memory_usage("end")
-            
-            return jsonify({
-                'success': True,
-                'image_url': url_for('static', filename=f'generated/{result_filename}'),
-                'stats': {
-                    'total_artworks': stats['total_artworks'],
-                    'total_visits': stats['total_visits'],
-                    'top_styles': top_styles
-                }
-            })
-        except Exception as e:
-            logger.error(f"Error processing image: {str(e)}")
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'success': True,
+            'preview_url': url_for('static', filename=f'generated/{preview_filename}'),
+            'message': 'Processing high-quality image in background...',
+            'status': 'processing'
+        })
+        
     except Exception as e:
         logger.error(f"Error in generate_art: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/check_status/<filename>')
+def check_status(filename):
+    result_path = os.path.join(app.config['GENERATED_FOLDER'], f"result_{filename}")
+    if os.path.exists(result_path):
+        return jsonify({
+            'status': 'complete',
+            'image_url': url_for('static', filename=f'generated/result_{filename}')
+        })
+    return jsonify({'status': 'processing'})
 
 @app.route('/stats')
 def get_stats():
