@@ -307,7 +307,7 @@ def cleanup_old_files():
 def process_image_in_background(filepath, style, result_path):
     """Process image in background with memory management"""
     try:
-        # Load and resize image in chunks
+        # Load image
         img = Image.open(filepath)
         width, height = img.size
         
@@ -320,42 +320,26 @@ def process_image_in_background(filepath, style, result_path):
             new_height = max_dim
             new_width = int(width * (max_dim / height))
         
-        # Process in chunks
-        chunk_size = 512
-        for y in range(0, new_height, chunk_size):
-            for x in range(0, new_width, chunk_size):
-                # Process chunk
-                chunk = img.crop((x, y, min(x + chunk_size, new_width), min(y + chunk_size, new_height)))
-                # Apply style to chunk
-                converter = EnhancedArtisticConverter()
-                processed_chunk = converter.apply_effect(chunk, style)
-                
-                # Save chunk
-                if processed_chunk is not None:
-                    if len(processed_chunk.shape) == 2:
-                        cv2.imwrite(f"{result_path}_chunk_{x}_{y}.jpg", processed_chunk, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                    else:
-                        cv2.imwrite(f"{result_path}_chunk_{x}_{y}.jpg", cv2.cvtColor(processed_chunk, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
-                
-                # Clean up
-                del processed_chunk
-                gc.collect()
+        # Resize image once
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
-        # Combine chunks
-        final_image = Image.new('RGB', (new_width, new_height))
-        for y in range(0, new_height, chunk_size):
-            for x in range(0, new_width, chunk_size):
-                chunk_path = f"{result_path}_chunk_{x}_{y}.jpg"
-                if os.path.exists(chunk_path):
-                    chunk = Image.open(chunk_path)
-                    final_image.paste(chunk, (x, y))
-                    os.remove(chunk_path)
+        # Convert to numpy array
+        img_array = np.array(img)
         
-        # Save final high-quality image
-        final_image.save(result_path, quality=95, optimize=True)
+        # Process entire image at once
+        converter = EnhancedArtisticConverter()
+        processed_img = converter.apply_effect(img_array, style)
+        
+        # Save result
+        if processed_img is not None:
+            if len(processed_img.shape) == 2:
+                cv2.imwrite(result_path, processed_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            else:
+                cv2.imwrite(result_path, cv2.cvtColor(processed_img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
         
         # Clean up
-        del final_image
+        del img_array
+        del processed_img
         gc.collect()
         
         return True
@@ -399,18 +383,18 @@ def generate_art():
         stats = update_stats(int(style))
         top_styles = get_top_styles()
         
-        # Start background processing
-        thread = threading.Thread(
-            target=process_image_in_background,
-            args=(filepath, int(style), result_path)
-        )
-        thread.start()
+        # Process image immediately instead of in background
+        success = process_image_in_background(filepath, int(style), result_path)
+        
+        if not success:
+            return jsonify({'error': 'Failed to process image'}), 500
         
         return jsonify({
             'success': True,
             'preview_url': url_for('static', filename=f'generated/{preview_filename}'),
-            'message': 'Processing high-quality image in background...',
-            'status': 'processing',
+            'image_url': url_for('static', filename=f'generated/{result_filename}'),
+            'message': 'Image processed successfully',
+            'status': 'complete',
             'stats': {
                 'total_artworks': stats.get('total_artworks', 0),
                 'total_visits': stats.get('total_visits', 0),
@@ -426,7 +410,7 @@ def generate_art():
 def check_status(filename):
     result_path = os.path.join(app.config['GENERATED_FOLDER'], f"result_{filename}")
     if os.path.exists(result_path):
-        # Get latest stats when returning the result
+        # Get latest stats
         stats = load_stats()
         top_styles = get_top_styles()
         return jsonify({
