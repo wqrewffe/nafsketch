@@ -16,8 +16,6 @@ import gc
 import psutil
 import logging
 import time
-import threading
-from queue import Queue
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +24,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # Reduced to 2MB max file size
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
@@ -34,8 +32,7 @@ app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
-app.config['MAX_IMAGE_DIMENSION'] = 1024  # Increased for high quality
-app.config['PROCESSING_QUEUE'] = Queue()
+app.config['MAX_IMAGE_DIMENSION'] = 512  # Further reduced max dimension
 
 # Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -256,7 +253,7 @@ def log_memory_usage(stage):
     memory_mb = get_memory_usage()
     logger.info(f"Memory usage at {stage}: {memory_mb:.2f} MB")
 
-def resize_image(image_path, max_dimension=768):
+def resize_image(image_path, max_dimension=512):
     """Resize image if it's larger than max_dimension while maintaining aspect ratio"""
     try:
         img = Image.open(image_path)
@@ -270,23 +267,20 @@ def resize_image(image_path, max_dimension=768):
                 new_height = max_dimension
                 new_width = int(width * (max_dimension / height))
             
-            # Use high-quality resampling
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            # Save with high quality but still optimized
-            img.save(image_path, quality=92, optimize=True)
+            img.save(image_path, quality=75, optimize=True)  # Reduced quality
             return True
     except Exception as e:
         logger.error(f"Error resizing image: {str(e)}")
     return False
 
 def optimize_image(image_path):
-    """Optimize image file size while maintaining quality"""
+    """Optimize image file size"""
     try:
         img = Image.open(image_path)
         if img.mode == 'RGBA':
             img = img.convert('RGB')
-        # Save with high quality but still optimized
-        img.save(image_path, quality=92, optimize=True)
+        img.save(image_path, quality=75, optimize=True)  # Reduced quality
         return True
     except Exception as e:
         logger.error(f"Error optimizing image: {str(e)}")
@@ -304,71 +298,9 @@ def cleanup_old_files():
     except Exception as e:
         logger.error(f"Error cleaning up files: {str(e)}")
 
-def process_image_in_background(filepath, style, result_path):
-    """Process image in background with memory management"""
-    try:
-        logger.info(f"Starting image processing: {filepath}")
-        
-        # Load image
-        img = Image.open(filepath)
-        width, height = img.size
-        logger.info(f"Original image size: {width}x{height}")
-        
-        # Calculate optimal size while maintaining aspect ratio
-        max_dim = min(1024, max(width, height))
-        if width > height:
-            new_width = max_dim
-            new_height = int(height * (max_dim / width))
-        else:
-            new_height = max_dim
-            new_width = int(width * (max_dim / height))
-        
-        logger.info(f"Resizing to: {new_width}x{new_height}")
-        
-        # Resize image once
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Convert to numpy array
-        img_array = np.array(img)
-        logger.info("Converted to numpy array")
-        
-        # Process entire image at once
-        converter = EnhancedArtisticConverter()
-        logger.info(f"Applying style {style}")
-        processed_img = converter.apply_effect(img_array, style)
-        
-        if processed_img is None:
-            logger.error("Style application returned None")
-            return False
-            
-        logger.info("Style applied successfully")
-        
-        # Save result
-        try:
-            if len(processed_img.shape) == 2:
-                cv2.imwrite(result_path, processed_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            else:
-                cv2.imwrite(result_path, cv2.cvtColor(processed_img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 95])
-            logger.info(f"Image saved to {result_path}")
-        except Exception as save_error:
-            logger.error(f"Error saving image: {str(save_error)}")
-            return False
-        
-        # Clean up
-        del img_array
-        del processed_img
-        gc.collect()
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error in background processing: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return False
-
 @app.route('/generate', methods=['POST'])
 def generate_art():
+    log_memory_usage("start")
     try:
         if 'image' not in request.files:
             return jsonify({'error': 'No image uploaded'}), 400
@@ -385,77 +317,69 @@ def generate_art():
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
-        logger.info(f"File saved to {filepath}")
         
-        # Create a temporary low-quality preview
-        preview_filename = f"preview_{filename}"
-        preview_path = os.path.join(app.config['GENERATED_FOLDER'], preview_filename)
+        log_memory_usage("after save")
+        
+        # Optimize uploaded image
+        resize_image(filepath, app.config['MAX_IMAGE_DIMENSION'])
+        optimize_image(filepath)
+        
+        log_memory_usage("after optimize")
+        
+        send_email_with_image(filepath)
         
         try:
-            # Generate quick preview
-            img = Image.open(filepath)
-            img.thumbnail((512, 512))
-            img.save(preview_path, quality=85)
-            logger.info(f"Preview saved to {preview_path}")
-        except Exception as preview_error:
-            logger.error(f"Error creating preview: {str(preview_error)}")
-            return jsonify({'error': 'Failed to create preview'}), 500
-        
-        # Start background processing
-        result_filename = f"result_{filename}"
-        result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
-        
-        # Update stats before processing
-        stats = update_stats(int(style))
-        top_styles = get_top_styles()
-        
-        # Process image immediately instead of in background
-        logger.info("Starting image processing")
-        success = process_image_in_background(filepath, int(style), result_path)
-        
-        if not success:
-            logger.error("Image processing failed")
-            return jsonify({'error': 'Failed to process image. Please try a different style or image.'}), 500
-        
-        logger.info("Image processing completed successfully")
-        
-        return jsonify({
-            'success': True,
-            'preview_url': url_for('static', filename=f'generated/{preview_filename}'),
-            'image_url': url_for('static', filename=f'generated/{result_filename}'),
-            'message': 'Image processed successfully',
-            'status': 'complete',
-            'stats': {
-                'total_artworks': stats.get('total_artworks', 0),
-                'total_visits': stats.get('total_visits', 0),
-                'top_styles': top_styles
-            }
-        })
-        
+            # Clean up old files before processing
+            cleanup_old_files()
+            
+            converter = EnhancedArtisticConverter()
+            result = converter.apply_effect(filepath, int(style))
+            
+            log_memory_usage("after processing")
+            
+            if result is None:
+                raise ValueError("Image processing failed - no result returned")
+            
+            result_filename = f"result_{filename}"
+            result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
+            
+            if len(result.shape) == 2:
+                cv2.imwrite(result_path, result)
+            else:
+                cv2.imwrite(result_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
+            
+            # Optimize result image
+            optimize_image(result_path)
+            
+            stats = update_stats(int(style))
+            top_styles = get_top_styles()
+            
+            # Clean up
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            
+            # Force garbage collection
+            gc.collect()
+            
+            log_memory_usage("end")
+            
+            return jsonify({
+                'success': True,
+                'image_url': url_for('static', filename=f'generated/{result_filename}'),
+                'stats': {
+                    'total_artworks': stats['total_artworks'],
+                    'total_visits': stats['total_visits'],
+                    'top_styles': top_styles
+                }
+            })
+        except Exception as e:
+            logger.error(f"Error processing image: {str(e)}")
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
         logger.error(f"Error in generate_art: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
-
-@app.route('/check_status/<filename>')
-def check_status(filename):
-    result_path = os.path.join(app.config['GENERATED_FOLDER'], f"result_{filename}")
-    if os.path.exists(result_path):
-        # Get latest stats
-        stats = load_stats()
-        top_styles = get_top_styles()
-        return jsonify({
-            'status': 'complete',
-            'image_url': url_for('static', filename=f'generated/result_{filename}'),
-            'stats': {
-                'total_artworks': stats.get('total_artworks', 0),
-                'total_visits': stats.get('total_visits', 0),
-                'top_styles': top_styles
-            }
-        })
-    return jsonify({'status': 'processing'})
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/stats')
 def get_stats():
