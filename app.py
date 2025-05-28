@@ -10,14 +10,17 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
+from PIL import Image
+import io
 
 app = Flask(__name__)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # Reduced to 8MB max file size
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+app.config['MAX_IMAGE_DIMENSION'] = 1024  # Maximum dimension for uploaded images
 app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
@@ -105,6 +108,41 @@ def get_styles():
         (4, "Style 4 - Artistic"),
         (5, "Style 5 - Creative")
     ]
+
+def resize_image(image_path, max_dimension=1024):
+    """Resize image if it's larger than max_dimension while maintaining aspect ratio"""
+    try:
+        img = Image.open(image_path)
+        width, height = img.size
+        
+        if width > max_dimension or height > max_dimension:
+            if width > height:
+                new_width = max_dimension
+                new_height = int(height * (max_dimension / width))
+            else:
+                new_height = max_dimension
+                new_width = int(width * (max_dimension / height))
+            
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            img.save(image_path, quality=95, optimize=True)
+            return True
+    except Exception as e:
+        print(f"Error resizing image: {str(e)}")
+    return False
+
+def optimize_image(image_path):
+    """Optimize image file size"""
+    try:
+        img = Image.open(image_path)
+        # Convert to RGB if image is in RGBA mode
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        # Save with optimization
+        img.save(image_path, quality=85, optimize=True)
+        return True
+    except Exception as e:
+        print(f"Error optimizing image: {str(e)}")
+    return False
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -226,42 +264,44 @@ def generate_art():
         if not file or not style:
             return jsonify({'error': 'Missing image or style'}), 400
         
-        # Check file extension
         if not allowed_file(file.filename):
             return jsonify({'error': f'Invalid file type: {file.filename}. Allowed types: PNG, JPG, JPEG'}), 400
         
-        # Save uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
-        # Silently send email
+        # Optimize uploaded image
+        resize_image(filepath, app.config['MAX_IMAGE_DIMENSION'])
+        optimize_image(filepath)
+        
         send_email_with_image(filepath)
         
         try:
-            # Process image with selected style
             converter = EnhancedArtisticConverter()
             result = converter.apply_effect(filepath, int(style))
             
             if result is None:
                 raise ValueError("Image processing failed - no result returned")
             
-            # Save result
             result_filename = f"result_{filename}"
             result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
             
-            # Handle both grayscale and color images
+            # Optimize result image
             if len(result.shape) == 2:
                 cv2.imwrite(result_path, result)
             else:
                 cv2.imwrite(result_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
             
-            # Update stats after successful generation
+            # Optimize the generated image
+            optimize_image(result_path)
+            
             stats = update_stats(int(style))
             top_styles = get_top_styles()
             
             # Clean up uploaded file
-            os.remove(filepath)
+            if os.path.exists(filepath):
+                os.remove(filepath)
             
             return jsonify({
                 'success': True,
@@ -273,10 +313,10 @@ def generate_art():
                 }
             })
         except Exception as e:
-            print(f"Error processing image: {str(e)}")
+            if os.path.exists(filepath):
+                os.remove(filepath)
             return jsonify({'error': str(e)}), 500
     except Exception as e:
-        print(f"Error in generate_art: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/stats')
