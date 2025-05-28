@@ -1215,20 +1215,7 @@
                 return;
             }
 
-            // Validate file type
             const file = imageInput.files[0];
-            const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-            if (!validTypes.includes(file.type)) {
-                showStatusMessage('Invalid file type. Please upload a PNG, JPG, or JPEG file.', 'error');
-                return;
-            }
-
-            // Validate file size (10MB limit)
-            if (file.size > 10 * 1024 * 1024) {
-                showStatusMessage('File size must be less than 10MB.', 'error');
-                return;
-            }
-
             const selectedStyle = styleSelect.value;
             const styleName = styleSelect.selectedOptions[0].text;
             
@@ -1278,8 +1265,11 @@
                     updateStatsDisplay(result.stats);
                 }
                 
-                // Display result image
-                displayResultImage(result.preview_url);
+                // Display preview image
+                resultContainer.innerHTML = `
+                    <img src="${result.preview_url}" alt="Preview" class="result-image">
+                    <div class="processing-status">Processing high-quality version...</div>
+                `;
                 
                 // Start checking for high-quality version
                 const filename = file.name;
