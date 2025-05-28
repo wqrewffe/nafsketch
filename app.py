@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # Reduced to 2MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # Reduced to 2MB max file size
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
@@ -32,7 +32,7 @@ app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
-app.config['MAX_IMAGE_DIMENSION'] = 512  # Further reduced max dimension
+app.config['MAX_IMAGE_DIMENSION'] = 720  # Further reduced max dimension
 
 # Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
