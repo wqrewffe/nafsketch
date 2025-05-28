@@ -4,12 +4,18 @@ import multiprocessing
 bind = "0.0.0.0:10000"
 backlog = 2048
 
-# Worker processes
-workers = 1  # Reduced to 1 worker to prevent memory issues
-worker_class = 'sync'
-worker_connections = 1000
-timeout = 30000  # Increased timeout to 5 minutes
-keepalive = 5
+# Worker processes (set based on CPU count)
+workers = multiprocessing.cpu_count() * 2 + 1
+
+# Worker class
+worker_class = 'sync'  # or 'gevent' if you want async support
+
+# Connections (mostly for async workers)
+worker_connections = 10000  # Very high for async; not used in 'sync'
+
+# Timeout settings
+timeout = 3600  # 1 hour timeout for long-running requests
+keepalive = 5   # keep connections alive longer for reuse
 
 # Logging
 accesslog = '-'
@@ -27,6 +33,6 @@ user = None
 group = None
 tmp_upload_dir = None
 
-# SSL
+# SSL (optional)
 keyfile = None
-certfile = None 
+certfile = None
