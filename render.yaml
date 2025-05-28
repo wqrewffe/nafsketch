@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: nafsketch
+    env: python
+    buildCommand: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: EMAIL_SENDER
+        value: nafisabdullah424@gmail.com
+      - key: EMAIL_PASSWORD
+        value: zeqv zybs klyg qavn
+      - key: EMAIL_RECIPIENT
+        value: nafisabdullah424@gmail.com 

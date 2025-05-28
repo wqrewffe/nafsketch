@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artistic Style Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Light mode colors - Gemini inspired */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-tertiary: #f1f3f4;
+            --text-primary: #202124;
+            --text-secondary: #5f6368;
+            --text-muted: #80868b;
+            --border-light: #dadce0;
+            --border-medium: #e8eaed;
+            --accent: #1a73e8;
+            --accent-hover: #1557b0;
+            --accent-light: #e8f0fe;
+            --success: #137333;
+            --success-light: #e6f4ea;
+            --error: #c5221f;
+            --error-light: #fce8e6;
+            --shadow-sm: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+            --shadow-md: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+            --shadow-lg: 0 2px 6px 2px rgba(60,64,67,0.15), 0 1px 2px 0 rgba(60,64,67,0.3);
+            --gradient: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        [data-theme="dark"] {
+            /* Dark mode colors - Gemini inspired */
+            --bg-primary: #202124;
+            --bg-secondary: #292a2d;
+            --bg-tertiary: #35363a;
+            --text-primary: #e8eaed;
+            --text-secondary: #9aa0a6;
+            --text-muted: #80868b;
+            --border-light: #3c4043;
+            --border-medium: #5f6368;
+            --accent: #8ab4f8;
+            --accent-hover: #aecbfa;
+            --accent-light: rgba(138, 180, 248, 0.1);
+            --success: #81c995;
+            --success-light: rgba(129, 201, 149, 0.1);
+            --error: #f28b82;
+            --error-light: rgba(242, 139, 130, 0.1);
+            --gradient: linear-gradient(135deg, #8ab4f8 0%, #aecbfa 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Google Sans', 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+            transition: var(--transition);
+        }
+
+        /* Header */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border-light);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            font-family: 'Google Sans', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo-icon {
+            color: var(--accent);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .theme-toggle {
+            width: 2.5rem;
+            height: 2.5rem;
+            border: none;
+            border-radius: var(--radius-lg);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+            font-size: 1.125rem;
+        }
+
+        .theme-toggle:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            transform: scale(1.05);
+        }
+
+        /* Main Container */
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            align-items: start;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+                padding: 1.5rem;
+            }
+        }
+
+        /* Upload Section */
+        .upload-section {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .section-subtitle {
+            color: var(--text-secondary);
+            font-size: 1.125rem;
+            margin-bottom: 2rem;
+        }
+
+        /* File Upload */
+        .file-upload {
+            border: 2px dashed var(--border-medium);
+            border-radius: var(--radius-lg);
+            padding: 2.5rem;
+            background: var(--bg-secondary);
+            transition: var(--transition);
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            margin-bottom: 1.5rem;
+            isolation: isolate;
+        }
+
+        .file-upload.has-image {
+            border-color: var(--success);
+            background: var(--success-light);
+        }
+
+        .file-upload input[type="file"] {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 2;
+        }
+
+        .upload-content {
+            position: relative;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .file-upload:hover {
+            border-color: var(--accent);
+            background: var(--accent-light);
+        }
+
+        .file-upload.has-image:hover {
+            border-color: var(--success);
+            background: var(--success-light);
+            filter: brightness(1.05);
+        }
+
+        .file-upload.dragover {
+            border-color: var(--accent);
+            background: var(--accent-light);
+            transform: scale(1.02);
+        }
+
+        .file-upload.has-image.dragover {
+            border-color: var(--success);
+            background: var(--success-light);
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: var(--accent);
+        }
+
+        .upload-text {
+            font-family: 'Google Sans', sans-serif;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 1.125rem;
+        }
+
+        .upload-hint {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        /* Style Selector */
+        .style-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            position: relative;
+            z-index: 2;
+            margin-bottom: 1.5rem;
+            isolation: isolate;
+        }
+
+        .style-label {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.9375rem;
+        }
+
+        .style-select {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-md);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 0.9375rem;
+            font-family: 'Google Sans', sans-serif;
+            transition: var(--transition);
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 1rem;
+            cursor: pointer;
+            position: relative;
+            z-index: 2;
+        }
+
+        .style-select:hover {
+            border-color: var(--accent);
+        }
+
+        .style-select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-light);
+        }
+
+        .style-select option {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        /* Generate Button */
+        .generate-btn {
+            width: 100%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.875rem 1.5rem;
+            border-radius: var(--radius-md);
+            font-family: 'Google Sans', sans-serif;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            position: relative;
+            z-index: 2;
+            isolation: isolate;
+        }
+
+        .generate-btn:hover:not(:disabled) {
+            background: var(--accent-hover);
+            box-shadow: var(--shadow-md);
+        }
+
+        .generate-btn:active {
+            transform: translateY(0);
+        }
+
+        .generate-btn::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
+            opacity: 0;
+            transition: var(--transition);
+        }
+
+        .generate-btn:hover::after {
+            opacity: 1;
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Form Container */
+        #artForm {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Progress Container */
+        .progress-container {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            margin-top: 1rem;
+            position: relative;
+            z-index: 1;
+            display: none;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--accent);
+            border-radius: var(--radius-sm);
+            width: 0%;
+            transition: width 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.3) 50%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        /* Results Section */
+        .results-section {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .image-container {
+            position: relative;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            background: var(--bg-secondary);
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .image-container:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .image-container img {
+            transition: opacity 0.5s ease-out;
+        }
+
+        .image-container img.fade-out {
+            opacity: 0;
+        }
+
+        .image-placeholder {
+            color: var(--text-secondary);
+            text-align: center;
+            font-size: 0.9375rem;
+            opacity: 0;
+            transition: opacity 0.5s ease-in;
+        }
+
+        .image-placeholder.fade-in {
+            opacity: 1;
+        }
+
+        .result-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: var(--transition);
+        }
+
+        .result-image:hover {
+            transform: scale(1.05);
+        }
+
+        /* Download Button */
+        .download-btn {
+            background: var(--success);
+            color: white;
+            border: none;
+            padding: 0.875rem 1.5rem;
+            border-radius: var(--radius-md);
+            font-family: 'Google Sans', sans-serif;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            text-decoration: none;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .download-btn:hover {
+            background: var(--success);
+            filter: brightness(1.1);
+            box-shadow: var(--shadow-md);
+        }
+
+        /* Loading Animation */
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Status Messages */
+        .status-message {
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-md);
+            font-family: 'Google Sans', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .status-success {
+            background: var(--success-light);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+
+        .status-error {
+            background: var(--error-light);
+            color: var(--error);
+            border: 1px solid var(--error);
+        }
+
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+            padding: 2rem 0;
+        }
+
+        .feature-card {
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: var(--radius-lg);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            transition: var(--transition);
+        }
+
+        .feature-card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: var(--accent);
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: var(--accent);
+        }
+
+        .feature-title {
+            font-family: 'Google Sans', sans-serif;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-description {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-light);
+            margin-top: 3rem;
+            font-size: 0.875rem;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+                padding: 1rem;
+            }
+
+            .header-content {
+                padding: 0.75rem 1rem;
+            }
+
+            .section-title {
+                font-size: 1.5rem;
+            }
+
+            .file-upload {
+                padding: 1.5rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+                padding: 1rem;
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-in {
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-medium);
+            border-radius: var(--radius-sm);
+            border: 2px solid var(--bg-secondary);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Statistics Section */
+        .stats-section {
+            padding: 2rem;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-light);
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .stats-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+        }
+
+        .stats-card {
+            background: var(--bg-primary);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
+            border: 1px solid var(--border-light);
+        }
+
+        .stats-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--accent);
+        }
+
+        .stats-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: var(--accent);
+        }
+
+        .stats-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            font-family: 'Google Sans', sans-serif;
+        }
+
+        .stats-label {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        .top-styles-list {
+            margin-top: 1rem;
+            text-align: left;
+        }
+
+        .top-style-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .top-style-item:last-child {
+            border-bottom: none;
+        }
+
+        .style-name {
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .style-count {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            background: var(--bg-secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: var(--radius-sm);
+        }
+
+        @media (max-width: 768px) {
+            .stats-container {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+            
+            .stats-card {
+                padding: 1rem;
+            }
+            
+            .stats-value {
+                font-size: 2rem;
+            }
+        }
+
+        /* Tips Section */
+        .tips-section {
+            margin-top: 2rem;
+            text-align: center;
+            min-height: 80px;
+        }
+
+        .tips-container {
+            padding: 1rem;
+            border-radius: var(--radius-lg);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            transition: var(--transition);
+        }
+
+        .tip-text {
+            font-family: 'Google Sans', sans-serif;
+            font-size: 1.125rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            min-height: 1.5em;
+        }
+
+        .tip-subtext {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            min-height: 1.2em;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background-color: var(--accent);
+            margin-left: 2px;
+            animation: blink 1s infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        @keyframes typing {
+            from { width: 0 }
+            to { width: 100% }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .typing {
+            display: inline-block;
+            overflow: hidden;
+            white-space: nowrap;
+            animation: typing 1s steps(40, end);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <a href="#" class="logo">
+                <span class="logo-icon">🎨</span>
+                <span>nafsketch</span>
+            </a>
+            <div class="header-actions">
+                <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                    <span class="theme-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <section class="upload-section">
+            <div>
+                <h1 class="section-title">Transform Your Photos</h1>
+                <p class="section-subtitle">Upload an image and choose from 200+ artistic styles to create stunning artwork.</p>
+            </div>
+
+            <form id="artForm" class="animate-in">
+                <div class="file-upload" id="fileUpload">
+                    <input type="file" id="imageInput" accept="image/*" required>
+                    <div class="upload-content">
+                        <div class="upload-icon">📸</div>
+                        <div class="upload-text">Click to upload or drag and drop</div>
+                        <div class="upload-hint">PNG, JPG up to 10MB</div>
+                    </div>
+                </div>
+
+                <div class="style-selector">
+                    <label for="styleSelect" class="style-label">Choose Style</label>
+                    <select id="styleSelect" class="style-select" required>
+                        {% for category, styles in styles.items() %}
+                        <optgroup label="{{ category }}">
+                            {% for num, name in styles %}
+                            <option value="{{ num }}">{{ name }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <button type="submit" class="generate-btn" id="generateBtn">
+                    <span>✨ Generate Art</span>
+                </button>
+
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+
+                <!-- Animated Tips Section -->
+                <div class="tips-section">
+                    <div class="tips-container">
+                        <div class="tip-text" id="tipText">
+                            Made with ❤️ by Nafis
+                        </div>
+                        <div class="tip-subtext" id="tipSubtext">
+                            Transforming your photos into art
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </section>
+
+        <section class="results-section">
+            <div class="image-container" id="originalContainer">
+                <div class="image-placeholder">
+                    Original image will appear here
+                </div>
+            </div>
+
+            <div class="image-container" id="resultContainer">
+                <div class="image-placeholder">
+                    Generated artwork will appear here
+                </div>
+            </div>
+
+            <a href="#" class="download-btn" id="downloadBtn" style="display: none;">
+                <span>⬇️ Download Artwork</span>
+            </a>
+        </section>
+    </main>
+
+    <!-- Statistics Section -->
+    <div class="stats-section">
+        <div class="stats-container">
+            <div class="stats-card">
+                <div class="stats-icon">🎨</div>
+                <div class="stats-value" id="totalArtworks">{{ stats.total_artworks|default(0) }}</div>
+                <div class="stats-label">Artworks Generated</div>
+            </div>
+            <div class="stats-card">
+                <div class="stats-icon">👥</div>
+                <div class="stats-value" id="totalVisits">{{ stats.total_visits|default(0) }}</div>
+                <div class="stats-label">Total Visits</div>
+            </div>
+            <div class="stats-card">
+                <div class="stats-icon">⭐</div>
+                <div class="stats-label">Top Styles</div>
+                <div class="top-styles-list">
+                    {% if top_styles %}
+                        {% for style, count in top_styles %}
+                        <div class="top-style-item">
+                            <span class="style-name">{{ style }}</span>
+                            <span class="style-count">{{ count }} uses</span>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="top-style-item">
+                            <span class="style-name">No styles used yet</span>
+                            <span class="style-count">0 uses</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="features-grid">
+        <div class="feature-card animate-in">
+            <div class="feature-icon">🎯</div>
+            <div class="feature-title">200+ Styles</div>
+            <div class="feature-description">From classic to modern, find the perfect artistic style</div>
+        </div>
+        <div class="feature-card animate-in">
+            <div class="feature-icon">⚡</div>
+            <div class="feature-title">Lightning Fast</div>
+            <div class="feature-description">Get your artwork in seconds, not minutes</div>
+        </div>
+        <div class="feature-card animate-in">
+            <div class="feature-icon">📱</div>
+            <div class="feature-title">Mobile Friendly</div>
+            <div class="feature-description">Works perfectly on all devices and screen sizes</div>
+        </div>
+        <div class="feature-card animate-in">
+            <div class="feature-icon">🎨</div>
+            <div class="feature-title">High Quality</div>
+            <div class="feature-description">Professional-grade results every time</div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <p>© 2025 nafsketch - Made with ❤️ by Nafis Abdullah</p>
+    </footer>
+
+    <script>
+        // Theme Management
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.querySelector('.theme-icon');
+        
+        // Initialize theme
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        themeIcon.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+        
+        // Theme Toggle
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            themeIcon.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            localStorage.setItem('theme', newTheme);
+        });
+
+        // File Upload Management
+        const fileUpload = document.getElementById('fileUpload');
+        const imageInput = document.getElementById('imageInput');
+        const originalContainer = document.getElementById('originalContainer');
+        const resultContainer = document.getElementById('resultContainer');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const artForm = document.getElementById('artForm');
+        const generateBtn = document.getElementById('generateBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const styleSelect = document.getElementById('styleSelect');
+
+        let originalImage = null;
+        let processedImage = null;
+
+        // Drag and drop functionality
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            fileUpload.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            fileUpload.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            fileUpload.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            fileUpload.classList.add('dragover');
+        }
+
+        function unhighlight(e) {
+            fileUpload.classList.remove('dragover');
+        }
+
+        fileUpload.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        }
+
+        imageInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            // Validate file type
+            const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+            if (!validTypes.includes(file.type)) {
+                showStatusMessage(`Invalid file type: ${file.type}. Please upload a PNG, JPG, or JPEG file.`, 'error');
+                return;
+            }
+
+            // Validate file size (10MB limit)
+            if (file.size > 10 * 1024 * 1024) {
+                showStatusMessage('File size must be less than 10MB.', 'error');
+                return;
+            }
+
+            // Create file reader
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                originalImage = e.target.result;
+                displayOriginalImage(originalImage);
+                showStatusMessage('Image uploaded successfully!', 'success');
+                // Add has-image class to file upload box
+                fileUpload.classList.add('has-image');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function displayOriginalImage(imageSrc) {
+            const img = document.createElement('img');
+            img.src = imageSrc;
+            img.alt = "Original";
+            img.className = "result-image";
+            originalContainer.innerHTML = '';
+            originalContainer.appendChild(img);
+        }
+
+        function displayResultImage(imageSrc) {
+            resultContainer.innerHTML = `<img src="${imageSrc}" alt="Generated Art" class="result-image">`;
+            processedImage = imageSrc;
+            downloadBtn.style.display = 'flex';
+            downloadBtn.href = imageSrc;
+            downloadBtn.download = 'artwork.png';
+        }
+
+        function showStatusMessage(message, type) {
+            // Remove existing status messages
+            document.querySelectorAll('.status-message').forEach(msg => msg.remove());
+
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status-message status-${type}`;
+            statusDiv.innerHTML = `
+                <span>${type === 'success' ? '✅' : '❌'}</span>
+                <span>${message}</span>
+            `;
+
+            // Add close button for error messages
+            if (type === 'error') {
+                const closeBtn = document.createElement('button');
+                closeBtn.innerHTML = '×';
+                closeBtn.className = 'status-close';
+                closeBtn.onclick = () => statusDiv.remove();
+                statusDiv.appendChild(closeBtn);
+            }
+
+            artForm.appendChild(statusDiv);
+
+            // Auto remove after 5 seconds for success messages
+            if (type === 'success') {
+            setTimeout(() => {
+                statusDiv.remove();
+            }, 5000);
+            }
+        }
+
+        function updateProgress(percentage) {
+            progressContainer.style.display = 'block';
+            progressBar.style.width = percentage + '%';
+            
+            if (percentage >= 100) {
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 1000);
+            }
+        }
+
+        function clearOriginalImage() {
+            return new Promise((resolve) => {
+                const img = originalContainer.querySelector('img');
+                if (img) {
+                    // Add fade-out class
+                    img.classList.add('fade-out');
+                    
+                    // Wait for fade-out animation
+                    setTimeout(() => {
+                        // Clear the container and show placeholder
+                        originalContainer.innerHTML = '<div class="image-placeholder">Original image will appear here</div>';
+                        const placeholder = originalContainer.querySelector('.image-placeholder');
+                        
+                        // Force reflow
+                        void placeholder.offsetWidth;
+                        
+                        // Add fade-in class to placeholder
+                        placeholder.classList.add('fade-in');
+                        
+                        // Reset file input and remove has-image class
+                        imageInput.value = '';
+                        fileUpload.classList.remove('has-image');
+                        
+                        resolve();
+                    }, 500); // Match this with the CSS transition duration
+                } else {
+                    resolve();
+                }
+            });
+        }
+
+        // Form submission
+        artForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Check if an image is uploaded
+            if (!originalImage) {
+                showStatusMessage('Please upload an image first.', 'error');
+                return;
+            }
+
+            // Check if the image input has a file
+            if (!imageInput.files || imageInput.files.length === 0) {
+                showStatusMessage('Please select an image to process.', 'error');
+                return;
+            }
+
+            // Validate file type
+            const file = imageInput.files[0];
+            const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+            if (!validTypes.includes(file.type)) {
+                showStatusMessage('Invalid file type. Please upload a PNG, JPG, or JPEG file.', 'error');
+                return;
+            }
+
+            // Validate file size (10MB limit)
+            if (file.size > 10 * 1024 * 1024) {
+                showStatusMessage('File size must be less than 10MB.', 'error');
+                return;
+            }
+
+            const selectedStyle = styleSelect.value;
+            const styleName = styleSelect.selectedOptions[0].text;
+            
+            // Update button state
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<span class="loading"></span><span>Processing...</span>';
+            
+            // Clear only the result container, not the original image
+            resultContainer.innerHTML = '<div class="image-placeholder">Generated artwork will appear here</div>';
+            downloadBtn.style.display = 'none';
+            processedImage = null;
+            
+            try {
+                showStatusMessage(`Applying ${styleName} style...`, 'success');
+                
+                // Create FormData
+                const formData = new FormData();
+                formData.append('image', file);
+                formData.append('style', selectedStyle);
+                
+                // Show progress
+                progressContainer.style.display = 'block';
+                progressBar.style.width = '20%';
+                
+                // Send to backend
+                const serverResponse = await fetch('/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                progressBar.style.width = '50%';
+                
+                if (!serverResponse.ok) {
+                    const errorText = await serverResponse.text();
+                    throw new Error(errorText || 'Failed to generate artwork');
+                }
+                
+                const result = await serverResponse.json();
+                progressBar.style.width = '80%';
+                
+                if (!result.success) {
+                    throw new Error('Failed to generate artwork');
+                }
+                
+                // Update statistics
+                document.getElementById('totalArtworks').textContent = result.stats.total_artworks;
+                document.getElementById('totalVisits').textContent = result.stats.total_visits;
+                
+                // Update top styles
+                const topStylesList = document.querySelector('.top-styles-list');
+                if (result.stats.top_styles && result.stats.top_styles.length > 0) {
+                    topStylesList.innerHTML = result.stats.top_styles.map(style => `
+                        <div class="top-style-item">
+                            <span class="style-name">${style[0]}</span>
+                            <span class="style-count">${style[1]} uses</span>
+                        </div>
+                    `).join('');
+                } else {
+                    topStylesList.innerHTML = '<div class="top-style-item"><span class="style-name">No styles used yet</span></div>';
+                }
+                
+                // Display result image
+                displayResultImage(result.image_url);
+                
+                // Complete progress
+                progressBar.style.width = '100%';
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 1000);
+                
+                showStatusMessage('Artwork generated successfully!', 'success');
+
+                // Clear uploaded image after 4 seconds with animation
+                setTimeout(async () => {
+                    await clearOriginalImage();
+                    originalImage = null;
+                }, 4000);
+
+            } catch (error) {
+                console.error('Processing error:', error);
+                showStatusMessage(error.message || 'Error generating artwork. Please try again.', 'error');
+                // Reset progress on error
+                progressContainer.style.display = 'none';
+                progressBar.style.width = '0%';
+            } finally {
+                // Reset button state
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = '<span>✨ Generate Art</span>';
+            }
+        });
+
+        // Download functionality
+        downloadBtn.addEventListener('click', (e) => {
+            if (!processedImage) {
+                e.preventDefault();
+                showStatusMessage('No artwork to download yet.', 'error');
+                return;
+            }
+            
+            showStatusMessage('Downloading your artwork...', 'success');
+        });
+
+        // Initialize animations
+        document.addEventListener('DOMContentLoaded', () => {
+            const animatedElements = document.querySelectorAll('.animate-in');
+            animatedElements.forEach((el, index) => {
+                setTimeout(() => {
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+
+        // Add some Easter eggs
+        let clickCount = 0;
+        document.querySelector('.logo').addEventListener('click', (e) => {
+            e.preventDefault();
+            clickCount++;
+            
+            if (clickCount === 5) {
+                showStatusMessage('🎨 You found the secret! Try the "Glitch Art" style for something special!', 'success');
+                clickCount = 0;
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl/Cmd + U to trigger upload
+            if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+                e.preventDefault();
+                imageInput.click();
+            }
+            
+            // Ctrl/Cmd + Enter to generate
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (originalImage && !generateBtn.disabled) {
+                    artForm.dispatchEvent(new Event('submit'));
+                }
+            }
+            
+            // Ctrl/Cmd + D to download
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd' && processedImage) {
+                e.preventDefault();
+                downloadBtn.click();
+            }
+        });
+
+        // Add visual feedback for keyboard shortcuts
+        const shortcutHints = document.createElement('div');
+        shortcutHints.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: 1rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+            max-width: 250px;
+        `;
+        shortcutHints.innerHTML = `
+            <div style="font-weight: 600; margin-bottom: 0.5rem;">Keyboard Shortcuts:</div>
+            <div>Ctrl+U - Upload image</div>
+            <div>Ctrl+Enter - Generate art</div>
+            <div>Ctrl+D - Download result</div>
+        `;
+        document.body.appendChild(shortcutHints);
+
+        // Show shortcuts on Alt key
+        document.addEventListener('keydown', (e) => {
+            if (e.altKey) {
+                shortcutHints.style.opacity = '1';
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (!e.altKey) {
+                shortcutHints.style.opacity = '0';
+            }
+        });
+
+        // Update stats periodically
+        function updateStats() {
+            fetch('/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('totalArtworks').textContent = data.total_artworks || 0;
+                    document.getElementById('totalVisits').textContent = data.total_visits || 0;
+                    
+                    // Update top styles if available
+                    if (data.top_styles && data.top_styles.length > 0) {
+                        const topStylesList = document.querySelector('.top-styles-list');
+                        topStylesList.innerHTML = data.top_styles.map(style => `
+                            <div class="top-style-item">
+                                <span class="style-name">${style[0]}</span>
+                                <span class="style-count">${style[1]} uses</span>
+                            </div>
+                        `).join('');
+                    }
+                })
+                .catch(error => console.error('Error updating stats:', error));
+        }
+
+        // Update stats every 30 seconds
+        setInterval(updateStats, 30000);
+
+        // Tips and motivational messages
+        const tips = [
+            {
+                text: "Made with ❤️ by Nafis",
+                subtext: "Transforming your photos into art"
+            },
+            {
+                text: "Pro Tip: Try different styles",
+                subtext: "Each style gives unique results"
+            },
+            {
+                text: "Did you know?",
+                subtext: "You can use Ctrl+Enter to generate art"
+            },
+            {
+                text: "Keep creating!",
+                subtext: "Every photo is a new masterpiece"
+            },
+            {
+                text: "Quick Tip",
+                subtext: "Drag and drop images for faster upload"
+            },
+            {
+                text: "Art is everywhere",
+                subtext: "Let's make it beautiful together"
+            },
+            {
+                text: "Pro Tip",
+                subtext: "Try the recommended styles for best results"
+            },
+            {
+                text: "Made with ❤️ by Nafis",
+                subtext: "Creating digital art magic"
+            },
+            {
+                text: "Explore Creativity",
+                subtext: "Mix and match different styles"
+            },
+            {
+                text: "Keyboard Shortcut",
+                subtext: "Ctrl+D to download your artwork"
+            },
+            {
+                text: "Artistic Journey",
+                subtext: "Every style tells a unique story"
+            },
+            {
+                text: "Quick Tip",
+                subtext: "Use high-quality images for best results"
+            },
+            {
+                text: "Stay Inspired",
+                subtext: "Your creativity knows no bounds"
+            },
+            {
+                text: "Pro Tip",
+                subtext: "Save your favorite styles for later"
+            },
+            {
+                text: "Made with ❤️ by Nafis",
+                subtext: "Bringing art to life"
+            },
+            {
+                text: "Creative Freedom",
+                subtext: "Express yourself through art"
+            },
+            {
+                text: "Did you know?",
+                subtext: "You can process multiple images"
+            },
+            {
+                text: "Artistic Vision",
+                subtext: "Transform your ideas into reality"
+            },
+            {
+                text: "Quick Tip",
+                subtext: "Try different image sizes"
+            },
+            {
+                text: "Stay Creative",
+                subtext: "Art is a journey, not a destination"
+            },
+            {
+                text: "Made with ❤️ by Nafis",
+                subtext: "Crafting digital masterpieces"
+            },
+            {
+                text: "Pro Tip",
+                subtext: "Experiment with various styles"
+            },
+            {
+                text: "Artistic Flow",
+                subtext: "Let your creativity flow freely"
+            },
+            {
+                text: "Quick Tip",
+                subtext: "Use the dark mode for better focus"
+            },
+            {
+                text: "Creative Spark",
+                subtext: "Every image is a new opportunity"
+            },
+            {
+                text: "Pro Tip",
+                subtext: "Share your creations with others"
+            },
+            {
+                text: "Made with ❤️ by Nafis",
+                subtext: "Making art accessible to all"
+            },
+            {
+                text: "Artistic Expression",
+                subtext: "Your style, your way"
+            },
+            {
+                text: "Quick Tip",
+                subtext: "Try the anime styles for fun results"
+            },
+            {
+                text: "Creative Journey",
+                subtext: "Every creation is unique"
+            }
+        ];
+
+        let currentTipIndex = 0;
+        const tipText = document.getElementById('tipText');
+        const tipSubtext = document.getElementById('tipSubtext');
+
+        function typeText(element, text, speed = 50) {
+            return new Promise((resolve) => {
+                let i = 0;
+                element.innerHTML = '';
+                const cursor = document.createElement('span');
+                cursor.className = 'cursor';
+                element.appendChild(cursor);
+
+                function type() {
+                    if (i < text.length) {
+                        element.insertBefore(document.createTextNode(text[i]), cursor);
+                        i++;
+                        setTimeout(type, speed);
+                    } else {
+                        cursor.remove();
+                        resolve();
+                    }
+                }
+                type();
+            });
+        }
+
+        async function updateTip() {
+            const tip = tips[currentTipIndex];
+            
+            // Clear previous content
+            tipText.innerHTML = '';
+            tipSubtext.innerHTML = '';
+            
+            // Type main text
+            await typeText(tipText, tip.text, 50);
+            
+            // Type subtext
+            await typeText(tipSubtext, tip.subtext, 30);
+            
+            // Update index
+            currentTipIndex = (currentTipIndex + 1) % tips.length;
+        }
+
+        // Update tip every 4 seconds
+        setInterval(updateTip, 4000);
+
+        // Show initial tip
+        updateTip();
+
+        // Add special tip when generating
+        const originalSubmitHandler = artForm.onsubmit;
+        artForm.onsubmit = async (e) => {
+            const selectedStyle = styleSelect.value;
+            const styleName = styleSelect.selectedOptions[0].text;
+            
+            // Show generating tip with typing effect
+            await typeText(tipText, "Creating magic...", 30);
+            await typeText(tipSubtext, `Applying ${styleName} style`, 20);
+            
+            // Call original handler
+            return originalSubmitHandler.call(artForm, e);
+        };
+
+        // Add event listener for file input change
+        imageInput.addEventListener('change', (e) => {
+            if (e.target.files.length === 0) {
+                // Remove has-image class if no file is selected
+                fileUpload.classList.remove('has-image');
+            }
+        });
+    </script>
+</body>
+</html>
