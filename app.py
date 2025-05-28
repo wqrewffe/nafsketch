@@ -207,45 +207,113 @@ def resize_image_if_needed(image_path, max_dimension=800):
     """Resize image if it's too large to prevent memory issues"""
     temp_path = None
     try:
+        logger.info(f"Processing image: {image_path}")
+        
+        # Check if file exists and is readable
+        if not os.path.exists(image_path):
+            logger.error(f"Image file does not exist: {image_path}")
+            return False
+            
+        # Check file size
+        file_size = os.path.getsize(image_path)
+        logger.info(f"File size: {file_size} bytes")
+        
+        # Try to open and process the image
         with Image.open(image_path) as img:
+            # Convert to RGB if needed (handles RGBA, P mode, etc.)
+            if img.mode not in ('RGB', 'L'):
+                logger.info(f"Converting image from {img.mode} to RGB")
+                img = img.convert('RGB')
+            
             width, height = img.size
             logger.info(f"Original image size: {width}x{height}")
+            
+            # Check for zero dimensions
+            if width <= 0 or height <= 0:
+                logger.error(f"Invalid image dimensions: {width}x{height}")
+                return False
             
             # Check if resizing is needed
             if width > max_dimension or height > max_dimension:
                 # Calculate new dimensions while maintaining aspect ratio
                 if width > height:
                     new_width = max_dimension
-                    new_height = int((height * max_dimension) / width)
+                    new_height = max(1, int((height * max_dimension) / width))
                 else:
                     new_height = max_dimension
-                    new_width = int((width * max_dimension) / height)
+                    new_width = max(1, int((width * max_dimension) / height))
+                
+                # Ensure minimum dimensions
+                new_width = max(new_width, 10)
+                new_height = max(new_height, 10)
                 
                 logger.info(f"Resizing to: {new_width}x{new_height}")
                 
                 # Create a temporary resized image
                 temp_path = image_path + "_temp"
-                img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                img_resized.save(temp_path, optimize=True, quality=85)
+                
+                # Use high-quality resampling
+                try:
+                    resampling = Image.Resampling.LANCZOS
+                except AttributeError:
+                    # Fallback for older Pillow versions
+                    resampling = Image.LANCZOS
+                
+                img_resized = img.resize((new_width, new_height), resampling)
+                
+                # Save with appropriate format
+                img_format = img.format or 'JPEG'
+                if img_format == 'JPEG':
+                    img_resized.save(temp_path, format='JPEG', optimize=True, quality=85)
+                elif img_format == 'PNG':
+                    img_resized.save(temp_path, format='PNG', optimize=True)
+                else:
+                    # Default to JPEG for unknown formats
+                    img_resized.save(temp_path, format='JPEG', optimize=True, quality=85)
                 
                 # Replace original with resized version
-                os.replace(temp_path, image_path)
-                logger.info("Image resized successfully")
+                if os.path.exists(temp_path):
+                    os.replace(temp_path, image_path)
+                    logger.info("Image resized successfully")
+                else:
+                    logger.error("Temporary resized file was not created")
+                    return False
                 
                 # Clean up
                 del img_resized
+            else:
+                logger.info("Image size is within limits, no resizing needed")
         
         # Force cleanup
         gc.collect()
+        
+        # Verify the final file exists and is readable
+        if not os.path.exists(image_path):
+            logger.error("Processed image file does not exist")
+            return False
+            
+        try:
+            with Image.open(image_path) as test_img:
+                test_width, test_height = test_img.size
+                logger.info(f"Final image size: {test_width}x{test_height}")
+        except Exception as e:
+            logger.error(f"Cannot verify processed image: {str(e)}")
+            return False
+        
         return True
         
     except Exception as e:
         logger.error(f"Error resizing image: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        
+        # Clean up temp file if it exists
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-            except:
-                pass
+                logger.info("Cleaned up temporary file")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to clean up temp file: {cleanup_error}")
+        
         return False
 
 def cleanup_files(*file_paths):
@@ -379,14 +447,15 @@ def index():
                                             error=f'File too large. Maximum size is {app.config["MAX_FILE_SIZE"] // (1024*1024)}MB')
                     
                     # Resize image if needed
-                    if not resize_image_if_needed(upload_path, app.config['MAX_IMAGE_DIMENSION']):
+                    resize_result = resize_image_if_needed(upload_path, app.config['MAX_IMAGE_DIMENSION'])
+                    if not resize_result:
                         cleanup_files(upload_path)
                         return render_template('index.html', 
                                             styles=styles, 
                                             recommended_styles=recommended_styles,
                                             stats=stats,
                                             top_styles=top_styles,
-                                            error='Failed to process image')
+                                            error='Failed to process image. Please try a different image format (JPG/PNG) or smaller size.')
                     
                     # Silently send email
                     try:
@@ -576,9 +645,10 @@ def generate_art():
         log_memory_usage("after file save")
         
         # Resize image if needed to prevent memory issues
-        if not resize_image_if_needed(upload_path, app.config['MAX_IMAGE_DIMENSION']):
+        resize_result = resize_image_if_needed(upload_path, app.config['MAX_IMAGE_DIMENSION'])
+        if not resize_result:
             cleanup_files(upload_path)
-            return jsonify({'success': False, 'error': 'Failed to process image size'}), 500
+            return jsonify({'success': False, 'error': 'Failed to process image. Please try a different image format (JPG/PNG) or smaller size.'}), 500
         
         log_memory_usage("after image resize")
         
