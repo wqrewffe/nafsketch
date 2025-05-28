@@ -3,7 +3,7 @@ services:
     name: nafsketch
     env: python
     buildCommand: |
-      python -m pip install --upgrade pip
+      pip install --upgrade pip setuptools wheel
       pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
@@ -14,4 +14,4 @@ services:
       - key: EMAIL_PASSWORD
         value: zeqv zybs klyg qavn
       - key: EMAIL_RECIPIENT
-        value: nafisabdullah424@gmail.com 
+        value: nafisabdullah424@gmail.com
