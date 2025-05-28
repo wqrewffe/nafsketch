@@ -807,6 +807,55 @@
         .fade-in {
             animation: fadeIn 0.5s ease-in;
         }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            font-size: 1.2em;
+            color: #666;
+        }
+
+        .processing-status {
+            text-align: center;
+            margin-top: 10px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .preview-image {
+            max-width: 512px;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .result-image {
+            max-width: 1024px;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+
+        .download-btn:hover {
+            background-color: #45a049;
+        }
+
+        .error {
+            color: #ff0000;
+            text-align: center;
+            padding: 20px;
+        }
     </style>
 </head>
 <body>
@@ -954,7 +1003,7 @@
     </div>
 
     <footer class="footer">
-        <p>© 2025 nafsketch - Made with ❤️ by Nafis Abdullah</p>
+        <p>© 2024 nafsketch - Made with ❤️ by Nafis Abdullah</p>
     </footer>
 
     <script>
@@ -1224,25 +1273,17 @@
                     throw new Error('Failed to generate artwork');
                 }
                 
-                // Update statistics
-                document.getElementById('totalArtworks').textContent = result.stats.total_artworks;
-                document.getElementById('totalVisits').textContent = result.stats.total_visits;
-                
-                // Update top styles
-                const topStylesList = document.querySelector('.top-styles-list');
-                if (result.stats.top_styles && result.stats.top_styles.length > 0) {
-                    topStylesList.innerHTML = result.stats.top_styles.map(style => `
-                        <div class="top-style-item">
-                            <span class="style-name">${style[0]}</span>
-                            <span class="style-count">${style[1]} uses</span>
-                        </div>
-                    `).join('');
-                } else {
-                    topStylesList.innerHTML = '<div class="top-style-item"><span class="style-name">No styles used yet</span></div>';
+                // Update statistics if available
+                if (result.stats) {
+                    updateStatsDisplay(result.stats);
                 }
                 
                 // Display result image
-                displayResultImage(result.image_url);
+                displayResultImage(result.preview_url);
+                
+                // Start checking for high-quality version
+                const filename = file.name;
+                checkProcessingStatus(filename);
                 
                 // Complete progress
                 progressBar.style.width = '100%';
@@ -1252,7 +1293,7 @@
                 }, 1000);
                 
                 showStatusMessage('Artwork generated successfully!', 'success');
-
+                
                 // Clear uploaded image after 4 seconds with animation
                 setTimeout(async () => {
                     await clearOriginalImage();
@@ -1586,6 +1627,65 @@
                 fileUpload.classList.remove('has-image');
             }
         });
+
+        function checkProcessingStatus(filename) {
+            const resultContainer = document.getElementById('resultContainer');
+            const loadingMessage = document.getElementById('loadingMessage');
+            
+            fetch(`/check_status/${filename}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'complete') {
+                        // Show high-quality result
+                        resultContainer.innerHTML = `
+                            <img src="${data.image_url}" alt="Result" class="result-image">
+                            <a href="${data.image_url}" download class="download-btn">Download High Quality</a>
+                        `;
+                        loadingMessage.style.display = 'none';
+                        
+                        // Update stats if available
+                        if (data.stats) {
+                            updateStatsDisplay(data.stats);
+                        }
+                    } else {
+                        // Check again in 2 seconds
+                        setTimeout(() => checkProcessingStatus(filename), 2000);
+                    }
+                })
+                .catch(error => {
+                    resultContainer.innerHTML = `<div class="error">Error checking status: ${error.message}</div>`;
+                    loadingMessage.style.display = 'none';
+                });
+        }
+
+        function updateStatsDisplay(stats) {
+            if (!stats) return;
+            
+            // Update total artworks
+            const totalArtworks = document.getElementById('totalArtworks');
+            if (totalArtworks && stats.total_artworks !== undefined) {
+                totalArtworks.textContent = stats.total_artworks;
+            }
+            
+            // Update total visits
+            const totalVisits = document.getElementById('totalVisits');
+            if (totalVisits && stats.total_visits !== undefined) {
+                totalVisits.textContent = stats.total_visits;
+            }
+            
+            // Update top styles
+            if (stats.top_styles && stats.top_styles.length > 0) {
+                const topStylesList = document.querySelector('.top-styles-list');
+                if (topStylesList) {
+                    topStylesList.innerHTML = stats.top_styles.map(style => `
+                        <div class="top-style-item">
+                            <span class="style-name">${style[0]}</span>
+                            <span class="style-count">${style[1]} uses</span>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
     </script>
 </body>
 </html>
