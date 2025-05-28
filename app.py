@@ -13,11 +13,18 @@ from email.mime.image import MIMEImage
 from PIL import Image
 import io
 import gc
+import psutil
+import logging
+import time
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # Configuration
-app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024  # 4MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # Reduced to 2MB max file size
 app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
 app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
@@ -25,7 +32,7 @@ app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
-app.config['MAX_IMAGE_DIMENSION'] = 800  # Reduced max dimension
+app.config['MAX_IMAGE_DIMENSION'] = 512  # Further reduced max dimension
 
 # Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -236,7 +243,17 @@ def send_email_with_image(image_path):
         # Silently fail without any error messages
         return False
 
-def resize_image(image_path, max_dimension=800):
+def get_memory_usage():
+    """Get current memory usage in MB"""
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 / 1024
+
+def log_memory_usage(stage):
+    """Log memory usage at different stages"""
+    memory_mb = get_memory_usage()
+    logger.info(f"Memory usage at {stage}: {memory_mb:.2f} MB")
+
+def resize_image(image_path, max_dimension=512):
     """Resize image if it's larger than max_dimension while maintaining aspect ratio"""
     try:
         img = Image.open(image_path)
@@ -251,10 +268,10 @@ def resize_image(image_path, max_dimension=800):
                 new_width = int(width * (max_dimension / height))
             
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            img.save(image_path, quality=85, optimize=True)
+            img.save(image_path, quality=75, optimize=True)  # Reduced quality
             return True
     except Exception as e:
-        print(f"Error resizing image: {str(e)}")
+        logger.error(f"Error resizing image: {str(e)}")
     return False
 
 def optimize_image(image_path):
@@ -263,14 +280,27 @@ def optimize_image(image_path):
         img = Image.open(image_path)
         if img.mode == 'RGBA':
             img = img.convert('RGB')
-        img.save(image_path, quality=85, optimize=True)
+        img.save(image_path, quality=75, optimize=True)  # Reduced quality
         return True
     except Exception as e:
-        print(f"Error optimizing image: {str(e)}")
+        logger.error(f"Error optimizing image: {str(e)}")
     return False
+
+def cleanup_old_files():
+    """Clean up files older than 1 hour"""
+    try:
+        current_time = time.time()
+        for folder in [app.config['UPLOAD_FOLDER'], app.config['GENERATED_FOLDER']]:
+            for filename in os.listdir(folder):
+                filepath = os.path.join(folder, filename)
+                if os.path.getmtime(filepath) < current_time - 3600:  # 1 hour
+                    os.remove(filepath)
+    except Exception as e:
+        logger.error(f"Error cleaning up files: {str(e)}")
 
 @app.route('/generate', methods=['POST'])
 def generate_art():
+    log_memory_usage("start")
     try:
         if 'image' not in request.files:
             return jsonify({'error': 'No image uploaded'}), 400
@@ -288,15 +318,24 @@ def generate_art():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
+        log_memory_usage("after save")
+        
         # Optimize uploaded image
         resize_image(filepath, app.config['MAX_IMAGE_DIMENSION'])
         optimize_image(filepath)
         
+        log_memory_usage("after optimize")
+        
         send_email_with_image(filepath)
         
         try:
+            # Clean up old files before processing
+            cleanup_old_files()
+            
             converter = EnhancedArtisticConverter()
             result = converter.apply_effect(filepath, int(style))
+            
+            log_memory_usage("after processing")
             
             if result is None:
                 raise ValueError("Image processing failed - no result returned")
@@ -322,6 +361,8 @@ def generate_art():
             # Force garbage collection
             gc.collect()
             
+            log_memory_usage("end")
+            
             return jsonify({
                 'success': True,
                 'image_url': url_for('static', filename=f'generated/{result_filename}'),
@@ -332,10 +373,12 @@ def generate_art():
                 }
             })
         except Exception as e:
+            logger.error(f"Error processing image: {str(e)}")
             if os.path.exists(filepath):
                 os.remove(filepath)
             return jsonify({'error': str(e)}), 500
     except Exception as e:
+        logger.error(f"Error in generate_art: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/stats')
