@@ -8,8 +8,8 @@ backlog = 2048
 workers = 1  # Reduced to 1 worker to prevent memory issues
 worker_class = 'sync'
 worker_connections = 1000
-timeout = 300  # Increased timeout to 5 minutes
-keepalive = 2
+timeout = 30000  # Increased timeout to 5 minutes
+keepalive = 5
 
 # Logging
 accesslog = '-'
