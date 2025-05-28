@@ -32,7 +32,7 @@ app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
 app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
-app.config['MAX_IMAGE_DIMENSION'] = 720  # Further reduced max dimension
+app.config['MAX_IMAGE_DIMENSION'] = 1024  # Further reduced max dimension
 
 # Ensure upload directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
