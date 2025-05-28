@@ -1,14 +1,13 @@
 services:
   - type: web
-    name: nafsketch
+    name: nafsketch-app
     env: python
+    plan: starter  # Use paid plan for more memory
     buildCommand: |
-      pip install --upgrade pip setuptools wheel
+      pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app --timeout 300 --workers 1 --max-requests 100 --max-requests-jitter 10 --preload
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.0
       - key: EMAIL_SENDER
         value: nafisabdullah424@gmail.com
       - key: EMAIL_PASSWORD
