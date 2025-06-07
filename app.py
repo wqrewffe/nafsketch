@@ -30,7 +30,7 @@ app.config['GENERATED_FOLDER'] = os.path.join('static', 'generated')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 app.config['STATS_FILE'] = 'stats.json'
 app.config['EMAIL_SENDER'] = os.getenv('EMAIL_SENDER', 'nafisabdullah424@gmail.com')
-app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'zeqv zybs klyg qavn')
+app.config['EMAIL_PASSWORD'] = os.getenv('EMAIL_PASSWORD', 'rzzl wtfh xfmk alxu')
 app.config['EMAIL_RECIPIENT'] = os.getenv('EMAIL_RECIPIENT', 'nafisabdullah424@gmail.com')
 app.config['MAX_IMAGE_DIMENSION'] = 1024  # Further reduced max dimension
 
